@@ -108,6 +108,11 @@ HOLDING_REGISTERS_120: tuple[GrowattDeviceRegisters, ...] = (
         register=0,
         value_type=int
     ),
+    GrowattDeviceRegisters(
+        name="max_output_power_percentage",   # 👈 MUST match .key in number.py
+        register=3,
+        value_type=int
+    ),
     FIRMWARE_REGISTER,
     SERIAL_NUMBER_REGISTER,
     GrowattDeviceRegisters(
