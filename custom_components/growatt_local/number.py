@@ -74,7 +74,9 @@ class GrowattNumberEntity(CoordinatorEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         raw_value = int(value)
-        await self.coordinator.write_register(self.entity_description.register, raw_value)
+        _LOGGER.warning("Setting inverter power limit: key=%s, value=%s", self.entity_description.key, raw_value)
+
+        await self.coordinator.write_register(self.entity_description.key, raw_value)
         await self.coordinator.force_refresh()
 
     @callback
