@@ -31,6 +31,11 @@ class GrowattNumber(CoordinatorEntity, NumberEntity):
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator = hass.data[DOMAIN][config_entry.data[CONF_SERIAL_NUMBER]]
+
+    # Make sure the coordinator fetches data for this key
+    coordinator.get_keys_by_name({INVERTER_POWER_LIMIT.key}, update_keys=True)
+
+    # Register the entity
     async_add_entities([
         GrowattNumber(coordinator, config_entry, INVERTER_POWER_LIMIT)
     ])
