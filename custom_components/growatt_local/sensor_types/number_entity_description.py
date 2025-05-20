@@ -1,10 +1,15 @@
-from homeassistant.components.number import NumberEntityDescription
 from dataclasses import dataclass
+from homeassistant.components.number import NumberEntityDescription
 
 @dataclass
-class GrowattNumberEntityDescription(NumberEntityDescription):
+class GrowattNumberRequiredKeysMixin:
     key: str
-    name: str
     register: int
     scale: float
     writeable: bool
+
+@dataclass
+class GrowattNumberEntityDescription(
+    NumberEntityDescription, GrowattNumberRequiredKeysMixin
+):
+    """Custom NumberEntityDescription for Growatt."""
