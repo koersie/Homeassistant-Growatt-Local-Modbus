@@ -1,23 +1,69 @@
+import logging
+from datetime import timedelta
+from typing import Any, Optional
+
 from homeassistant.components.number import NumberEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN, CONF_MODEL, CONF_NAME, CONF_FIRMWARE, CONF_SERIAL_NUMBER
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import (
+    CONF_MODEL,
+    CONF_NAME,
+    CONF_FIRMWARE,
+    CONF_SERIAL_NUMBER,
+    DOMAIN,
+)
 from .sensor_types.inverter import INVERTER_POWER_LIMIT
 from .sensor_types.number_entity_description import GrowattNumberEntityDescription
 
+_LOGGER = logging.getLogger(__name__)
+SCAN_INTERVAL = timedelta(minutes=1)
 
-class GrowattNumber(CoordinatorEntity, NumberEntity):
-    def __init__(self, coordinator, config_entry, description: GrowattNumberEntityDescription):
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._config_entry = config_entry
-        self._attr_unique_id = f"{DOMAIN}_{config_entry.data[CONF_SERIAL_NUMBER]}_{description.key}"
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    coordinator = hass.data[DOMAIN][config_entry.data[CONF_SERIAL_NUMBER]]
+    entities = []
+    sensor_descriptions: list[GrowattNumberEntityDescription] = []
+
+    # Add your number descriptions here (can be expanded later)
+    sensor_descriptions.append(INVERTER_POWER_LIMIT)
+
+    # Request the coordinator to track this register
+    coordinator.get_keys_by_name({sensor.key for sensor in sensor_descriptions}, update_keys=True)
+
+    entities.extend(
+        [
+            GrowattNumberEntity(
+                coordinator, description=description, entry=config_entry
+            )
+            for description in sensor_descriptions
+        ]
+    )
+
+    async_add_entities(entities, True)
+
+
+class GrowattNumberEntity(CoordinatorEntity, NumberEntity):
+    """Growatt number entity."""
+
+    def __init__(self, coordinator, description, entry):
+        super().__init__(coordinator, description.key)
+        self.entity_description: GrowattNumberEntityDescription = description
+        self._config_entry = entry
+
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, config_entry.data[CONF_SERIAL_NUMBER])},
+            identifiers={(DOMAIN, entry.data[CONF_SERIAL_NUMBER])},
             manufacturer="Growatt",
-            model=config_entry.data[CONF_MODEL],
-            sw_version=config_entry.data[CONF_FIRMWARE],
-            name=config_entry.options[CONF_NAME],
+            model=entry.data[CONF_MODEL],
+            sw_version=entry.data[CONF_FIRMWARE],
+            name=entry.options[CONF_NAME],
         )
 
     @property
@@ -29,13 +75,9 @@ class GrowattNumber(CoordinatorEntity, NumberEntity):
         await self.coordinator.write_register(self.entity_description.register, raw_value)
         await self.coordinator.force_refresh()
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
-    coordinator = hass.data[DOMAIN][config_entry.data[CONF_SERIAL_NUMBER]]
-
-    # Make sure the coordinator fetches data for this key
-    coordinator.get_keys_by_name({INVERTER_POWER_LIMIT.key}, update_keys=True)
-
-    # Register the entity
-    async_add_entities([
-        GrowattNumber(coordinator, config_entry, INVERTER_POWER_LIMIT)
-    ])
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update the HA state when coordinator has new data."""
+        if (state := self.coordinator.data.get(self.entity_description.key)) is not None:
+            self._attr_native_value = state
+            self.async_write_ha_state()
