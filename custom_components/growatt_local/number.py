@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_MODEL,
     CONF_NAME,
+    PERCENTAGE,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
@@ -30,58 +31,65 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator = hass.data[DOMAIN][config_entry.data[CONF_SERIAL_NUMBER]]
-    entities = []
-    sensor_descriptions: list[GrowattNumberEntityDescription] = []
+    coordinator = hass.data[DOMAIN][config_entry.data[CONF_NAME]]
+    serial_number = config_entry.data[CONF_SERIAL_NUMBER]
+    model = config_entry.data[CONF_MODEL]
+    name = config_entry.data[CONF_NAME]
+    firmware = config_entry.data[CONF_FIRMWARE]
 
-    # Add your number descriptions here (can be expanded later)
-    sensor_descriptions.append(INVERTER_POWER_LIMIT)
+    entities = [
+        GrowattPowerLimitNumber(
+            coordinator,
+            serial_number,
+            model,
+            name,
+            firmware,
+            INVERTER_POWER_LIMIT
+        )
+    ]
 
-    # Request the coordinator to track this register
-    coordinator.get_keys_by_name({sensor.key for sensor in sensor_descriptions}, update_keys=True)
-
-    entities.extend(
-        [
-            GrowattNumberEntity(
-                coordinator, description=description, entry=config_entry
-            )
-            for description in sensor_descriptions
-        ]
-    )
-
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
-class GrowattNumberEntity(CoordinatorEntity, NumberEntity):
-    """Growatt number entity."""
+class GrowattPowerLimitNumber(CoordinatorEntity, NumberEntity):
+    def __init__(
+        self,
+        coordinator,
+        serial_number: str,
+        model: str,
+        name: str,
+        firmware: str,
+        description: GrowattNumberEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_name = f"{name} {description.name}"
+        self._attr_unique_id = f"{serial_number}_{description.key}"
+        self._attr_native_min_value = description.native_min_value
+        self._attr_native_max_value = description.native_max_value
+        self._attr_native_step = description.native_step
+        self._attr_native_unit_of_measurement = PERCENTAGE
+        self._serial_number = serial_number
+        self._model = model
+        self._name = name
+        self._firmware = firmware
 
-    def __init__(self, coordinator, description, entry):
-        super().__init__(coordinator, description.key)
-        self.entity_description: GrowattNumberEntityDescription = description
-        self._config_entry = entry
-
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.data[CONF_SERIAL_NUMBER])},
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._serial_number)},
+            name=self._name,
             manufacturer="Growatt",
-            model=entry.data[CONF_MODEL],
-            sw_version=entry.data[CONF_FIRMWARE],
-            name=entry.options[CONF_NAME],
+            model=self._model,
+            sw_version=self._firmware,
         )
 
     @property
-    def native_value(self) -> int:
-        return self.coordinator.data.get(self.entity_description.key, 0)
+    def native_value(self) -> Optional[float]:
+        return self.coordinator.data.get(self.entity_description.key)
 
     async def async_set_native_value(self, value: float) -> None:
-        raw_value = int(value)
-        _LOGGER.warning("Setting inverter power limit: key=%s, value=%s", self.entity_description.key, raw_value)
-
-        await self.coordinator.write_register(self.entity_description.key, raw_value)
-        await self.coordinator.force_refresh()
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Update the HA state when coordinator has new data."""
-        if (state := self.coordinator.data.get(self.entity_description.key)) is not None:
-            self._attr_native_value = state
-            self.async_write_ha_state()
+        await self.coordinator.write_register(
+            self.entity_description.register, int(value)
+        )
+        await self.coordinator.async_request_refresh()
